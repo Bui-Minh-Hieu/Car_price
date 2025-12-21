@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Dự đoán Giá Xe Ô Tô</title>
+    <style>
+        /* CSS MODERN MINIMALIST (Đã chỉnh sửa) */
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #0d1117; /* Nền tối hơn (Gần như GitHub Dark) */
+            color: #c9d1d9; /* Màu chữ sáng nhạt */
+            display: flex; 
+            justify-content: center; 
+            padding: 40px 20px; 
+        }
+        .container { 
+            background-color: #161b22; /* Nền container tối nhẹ nhàng */
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); /* Bóng đổ mạnh hơn */
+            width: 100%; 
+            max-width: 900px; 
+            border: 1px solid #30363d; /* Viền tinh tế */
+        }
+        .header { 
+            color: #58a6ff; /* Màu xanh lam tươi sáng (Primary Blue) */
+            text-align: center; 
+            padding: 0 0 30px 0; 
+            font-size: 2em; /* Tăng kích thước */
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        
+        /* BỐ CỤC GRID 2 CỘT MỚI */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px; /* Tăng khoảng cách */
+            margin-bottom: 20px;
+        }
+
+        .form-group { 
+            margin-bottom: 20px; 
+        }
+        label { 
+            display: block; 
+            font-weight: 500; /* Giảm độ đậm */
+            margin-bottom: 8px; /* Tăng khoảng cách */
+            color: #c9d1d9;
+            font-size: 1em;
+        }
+        
+        /* Input hiện đại */
+        input[type="text"], input[type="number"], input[type="email"], select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #4d82bfff; /* Viền tối */
+            border-radius: 6px;
+            box-sizing: border-box;
+            /* CHỈNH SỬA Ở ĐÂY: Màu nền tối hơn, màu chữ trắng hơn */
+            background-color: #1e2531; /* Nền tối đậm hơn một chút */
+            color: #f0f6fc;            /* Màu chữ trắng sáng */
+            transition: all 0.2s ease;
+            /* Thêm thuộc tính để thử ghi đè giao diện mặc định */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        /* Hiệu ứng focus */
+        input:focus, select:focus {
+            border-color: #58a6ff; /* Màu xanh lam nổi bật */
+            box-shadow: 0 0 0 1px #58a6ff; /* Hiệu ứng focus tinh tế */
+            outline: none;
+            background-color: #2d343c; /* Nền hơi sáng hơn khi focus */
+        }
+
+        .btn-predict { 
+            background-color: #38a169; /* Màu xanh lá cây nổi bật (Success/Action) */
+            color: #ffffff; 
+            padding: 15px 20px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 1.1em;     
+            font-weight: 700;
+            width: 100%; 
+            margin-top: 30px; /* Tăng khoảng cách */
+            box-shadow: 0 4px 20px rgba(56, 161, 105, 0.4);
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .btn-predict:hover {
+            background-color: #279e57;
+            box-shadow: 0 6px 25px rgba(56, 161, 105, 0.6);
+        }
+        
+        /* Hộp kết quả */
+        .result-box { 
+            margin-top: 30px; 
+            padding: 20px; /* Tăng padding */
+            background-color: #1e3c28; /* Nền xanh lá cây tối/sâu */
+            border: 1px solid #48bb78; /* Viền xanh lá cây nhạt */
+            border-radius: 8px; 
+            text-align: center; 
+            font-size: 1.3em; /* Tăng kích thước chữ */
+            font-weight: bold; 
+            color: #81c784; /* Chữ xanh lá cây nhạt/sáng */
+            box-shadow: 0 2px 10px rgba(72, 187, 120, 0.2);
+        }
+        
+        /* Màu lỗi */
+        small {
+            font-size: 0.85em;
+        }
+        small[style="color: #e74c3c;"] {
+            color: #f87272 !important; /* Màu đỏ mềm hơn cho lỗi */
+        }
+
+        /* Responsive cho màn hình nhỏ */
+        @media (max-width: 768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+                gap: 0;
+            }
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span role="img" aria-label="car"></span> Dự đoán giá Xe ô tô
+        </div>
+
+        <form method="POST">
+            {% csrf_token %}
+            
+            <div class="form-grid">
+                <div class="column-1">
+                    <div class="form-group">
+                        <label for="{{ form.hang_xe.id_for_label }}">{{ form.hang_xe.label }}:</label>
+                        {{ form.hang_xe }}
+                        {% if form.hang_xe.errors %}<small style="color: #e74c3c;">{{ form.hang_xe.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.model_xe.id_for_label }}">{{ form.model_xe.label }}:</label>
+                        {{ form.model_xe }}
+                        {% if form.model_xe.errors %}<small style="color: #e74c3c;">{{ form.model_xe.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.kieu_dang_than_xe.id_for_label }}">{{ form.kieu_dang_than_xe.label }}:</label>
+                        {{ form.kieu_dang_than_xe }}
+                        {% if form.kieu_dang_than_xe.errors %}<small style="color: #e74c3c;">{{ form.kieu_dang_than_xe.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.loai_hop_so.id_for_label }}">{{ form.loai_hop_so.label }}:</label>
+                        {{ form.loai_hop_so }}
+                        {% if form.loai_hop_so.errors %}<small style="color: #e74c3c;">{{ form.loai_hop_so.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.loai_dong_co.id_for_label }}">{{ form.loai_dong_co.label }}:</label>
+                        {{ form.loai_dong_co }}
+                        {% if form.loai_dong_co.errors %}<small style="color: #e74c3c;">{{ form.loai_dong_co.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.nam_san_xuat.id_for_label }}">{{ form.nam_san_xuat.label }}:</label>
+                        {{ form.nam_san_xuat }}
+                        {% if form.nam_san_xuat.errors %}<small style="color: #e74c3c;">{{ form.nam_san_xuat.errors }}</small>{% endif %}
+                    </div>
+                </div>
+
+                <div class="column-2">
+                    <div class="form-group">
+                        <label for="{{ form.mau_xe.id_for_label }}">{{ form.mau_xe.label }}:</label>
+                        {{ form.mau_xe }}
+                        {% if form.mau_xe.errors %}<small style="color: #e74c3c;">{{ form.mau_xe.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.so_km.id_for_label }}">{{ form.so_km.label }}:</label>
+                        {{ form.so_km }}
+                        {% if form.so_km.errors %}<small style="color: #e74c3c;">{{ form.so_km.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.dung_tich_dong_co.id_for_label }}">{{ form.dung_tich_dong_co.label }}:</label>
+                        {{ form.dung_tich_dong_co }}
+                        {% if form.dung_tich_dong_co.errors %}<small style="color: #e74c3c;">{{ form.dung_tich_dong_co.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.day_chuyen_lap_rap.id_for_label }}">{{ form.day_chuyen_lap_rap.label }}:</label>
+                        {{ form.day_chuyen_lap_rap }}
+                        {% if form.day_chuyen_lap_rap.errors %}<small style="color: #e74c3c;">{{ form.day_chuyen_lap_rap.errors }}</small>{% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ form.dang_ky_xe.id_for_label }}">{{ form.dang_ky_xe.label }}:</label>
+                        {{ form.dang_ky_xe }}
+                        {% if form.dang_ky_xe.errors %}<small style="color: #e74c3c;">{{ form.dang_ky_xe.errors }}</small>{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% if predicted_price %}
+            <div class="result-box">
+                Giá Dự Đoán: {{ predicted_price }} dollars
+            </div>
+            {% endif %}    
+            {% comment %} Nút submit và lỗi chung nằm ngoài grid {% endcomment %}
+            {% if form.non_field_errors %}
+                <div class="form-group">
+                    <small style="color: #e74c3c; font-weight: 500; display: block; margin-top: 4px;">{{ form.non_field_errors }}</small>
+                </div>
+            {% endif %}
+
+            <button type="submit" class="btn-predict">Dự đoán</button>
+        </form>
+    </div>
+</body>
+</html>

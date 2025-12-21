@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Dự đoán Giá Xe Ô Tô</title>
+    <style>
+        /* CSS Dark Theme */
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #121212; /* Nền tối */
+            color: #e0e0e0; /* Màu chữ sáng */
+            display: flex; 
+            justify-content: center; 
+            padding: 40px 20px; 
+        }
+        .container { 
+            background-color: #2c2c2c; /* Nền container tối hơn */
+            padding: 30px; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Shadow nổi bật hơn */
+            width: 100%; 
+            max-width: 600px; 
+        }
+        .header { 
+            background-color: #007bff; /* Giữ màu accent cho Header */
+            color: white; 
+            text-align: center; 
+            padding: 15px 0; 
+            border-radius: 5px 5px 0 0; 
+            margin: -30px -30px 20px -30px; 
+            font-size: 1.2em; 
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        label { 
+            display: block; 
+            font-weight: bold; 
+            margin-bottom: 5px; 
+            color: #e0e0e0;
+        }
+        input[type="text"], input[type="number"], input[type="email"], select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #555; /* Viền tối */
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #3a3a3a; /* Nền input tối */
+            color: #e0e0e0; /* Chữ input sáng */
+        }
+        /* Style cho input khi focus */
+        input:focus, select:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            outline: none;
+        }
+
+        .btn-predict { 
+            background-color: #007bff; 
+            color: white; 
+            padding: 12px 15px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 1em; 
+            width: 100%; 
+            transition: background-color 0.3s;
+        }
+        .btn-predict:hover {
+            background-color: #0056b3;
+        }
+        
+        /* Thay đổi màu Result Box cho Dark Theme */
+        .result-box { 
+            margin-top: 25px; 
+            padding: 15px; 
+            background-color: #1e3a24; /* Nền tối của màu xanh lá cây */
+            border: 1px solid #4caf50; 
+            border-radius: 4px; 
+            text-align: center; 
+            font-size: 1.2em; 
+            font-weight: bold; 
+            color: #a5d6a7; /* Chữ sáng hơn */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span role="img" aria-label="car">🚗</span> Dự đoán giá xe ô tô
+        </div>
+
+        <form method="POST">
+            {% csrf_token %}
+            {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">{{ field.label }}:</label>
+                {{ field }}
+                {% if field.errors %}
+                    <small style="color: #ff8a80;">{{ field.errors }}</small>
+                {% endif %}
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn-predict">Dự đoán</button>
+        </form>
+
+        {% if predicted_price %}
+        <div class="result-box">
+            Giá Dự Đoán: {{ predicted_price }} VNĐ
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
