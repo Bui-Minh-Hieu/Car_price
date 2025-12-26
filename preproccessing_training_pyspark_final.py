@@ -1,13 +1,19 @@
 import json
 import math
 import numpy as np
+import os
+
+# Pyspark imports
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, mean, log10, lit, when
-from pyspark.ml.feature import VectorAssembler, StringIndexer, OneHotEncoder
+# --- CẬP NHẬT IMPORT QUAN TRỌNG ---
+from pyspark.ml.feature import VectorAssembler, StringIndexer, OneHotEncoder, StringIndexerModel
 from pyspark.ml.regression import RandomForestRegressor
 from pyspark.ml import Pipeline
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import RegressionEvaluator
 
-# Hỗ trợ xuất ONNX
+# ONNX imports
 import onnxmltools
 from onnxmltools.convert.common.data_types import FloatTensorType
 
@@ -15,80 +21,84 @@ from onnxmltools.convert.common.data_types import FloatTensorType
 # 1. KHỞI TẠO VÀ LOAD DỮ LIỆU
 # ==============================================================================
 spark = SparkSession.builder \
-    .appName("CarPrice_Train_Export") \
+    .appName("CarPrice_Train_Export_KFold") \
     .master("local[*]") \
     .getOrCreate()
 
-# Đọc dữ liệu, tự động nhận diện kiểu số
+print("Đang đọc dữ liệu...")
+# Đọc dữ liệu (đảm bảo file csv nằm đúng đường dẫn)
 df = spark.read.csv("data/Clean Data_pakwheels.csv", header=True, inferSchema=True)
 df = df.drop("Location")
 
-# Xóa trùng lặp (Giống cell 4-5)
+# Xóa trùng lặp
 print(f"Số dòng gốc: {df.count()}")
 df = df.dropDuplicates()
 print(f"Số dòng sau khi drop duplicates: {df.count()}")
 
-# Log transform giá (Giống cell 9)
+# Log transform giá
 df = df.withColumn("Price", log10(col("Price")))
 
 # ==============================================================================
-# 2. FEATURE ENGINEERING (MÔ PHỎNG LẠI SKLEARN)
+# 2. FEATURE ENGINEERING
 # ==============================================================================
+print("Đang xử lý Feature Engineering...")
 
 # --- A. TARGET ENCODING (Company, Model, Color) ---
-# Logic: Tính trên toàn bộ dataset trước khi split (Giống cell 28 file gốc)
 target_enc_cols = ['Company Name', 'Model Name', 'Color']
 smoothing = 5.0
 global_mean = df.select(mean('Price')).collect()[0][0]
 
-# Dictionary để lưu mapping cho Web App
 encoding_maps = {
     "global_mean": global_mean,
     "target_encoding": {},
     "ordinal_encoding": {},
-    "onehot_encoding": {} # Chỉ lưu danh sách cột để biết thứ tự
+    "onehot_encoding": {} 
 }
 
 df_encoded = df
 for c in target_enc_cols:
     # 1. Tính toán thống kê
+    # Tạo df với 3 cột: cột c đã được nhóm
+    # cột cat_mean chứa giá trị trung bình của Price theo giá trị cột c
+    # cột cat_count chứa số lượng giá trị cột c xuất hiện trong dữ lieuej
     stats = df.groupBy(c).agg(
         mean("Price").alias("cat_mean"),
         count("Price").alias("cat_count")
     )
     
     # 2. Áp dụng công thức smoothing
+    # .withColumn(name, value): Tạo cột mới cho df, name tên cột, value giá trị của cột
     stats = stats.withColumn(
         c + "_encoded",
         (col("cat_count") * col("cat_mean") + smoothing * global_mean) / (col("cat_count") + smoothing)
     )
     
     # 3. Join vào bảng gốc
+    # Left join các cột c_encoded của stats vào dữ liệu gốc theo cột c
     df_encoded = df_encoded.join(stats.select(c, c + "_encoded"), on=c, how="left")
     df_encoded = df_encoded.fillna({c + "_encoded": global_mean})
     
-    # 4. Lưu mapping vào dict để xuất JSON
     rows = stats.select(c, c + "_encoded").collect()
     encoding_maps["target_encoding"][c] = {row[0]: row[1] for row in rows}
 
-# --- B. ORDINAL ENCODING (Assembly, Transmission, Registration) ---
+# --- B. ORDINAL ENCODING ---
 # PySpark StringIndexer gán 0 cho giá trị xuất hiện nhiều nhất.
 # Ta cần lưu lại quy tắc map này để Web App dùng đúng số đó.
 ordinal_cols = ['Assembly', 'Transmission Type', 'Registration Status']
-ordinal_stages = []
+ordinal_stages = []     # Mảng lưu các đối tượng indexer, dùng cho pipeline
 
+# Tạo bộ Indexer cho từng cột
 for c in ordinal_cols:
     indexer = StringIndexer(inputCol=c, outputCol=c + "_idx", handleInvalid="keep")
     ordinal_stages.append(indexer)
 
-# --- C. ONE-HOT ENCODING (Engine Type, Body Type) ---
+# --- C. ONE-HOT ENCODING ---
 ohe_cols = ['Engine Type', 'Body Type']
 ohe_stages = []
 
 for c in ohe_cols:
-    # Indexer trước
+    # Indexer trước để chuyển kiểu chữ thành số
     indexer = StringIndexer(inputCol=c, outputCol=c + "_idx_temp", handleInvalid="keep")
-    # Encoder sau (dropLast=False để giống sklearn sparse=False)
     encoder = OneHotEncoder(inputCol=c + "_idx_temp", outputCol=c + "_vec", dropLast=False)
     ohe_stages.append(indexer)
     ohe_stages.append(encoder)
@@ -99,71 +109,98 @@ pre_model = pre_pipeline.fit(df_encoded)
 df_final = pre_model.transform(df_encoded)
 
 # --- TRÍCH XUẤT MAPPING TỪ PIPELINE CHO JSON ---
-# Phần này cực quan trọng: Lấy ra quy tắc mà Spark đã gán số cho chữ
+# Duyệt từng stages trong pipeline tiền xử lý
 for stage in pre_model.stages:
-    if isinstance(stage,  from pyspark.ml.feature import StringIndexerModel):
-        # Kiểm tra xem đây là indexer cho Ordinal hay OHE
+    # Kiểm tra nếu stage đó là StringIndexerModel
+    if isinstance(stage, StringIndexerModel):
+        # Lấy ra tên cột input của stage đó (ex: 'Model Name') và labels của stage đó (ex: labels=['Toyota', 'Honda'], Toyoa = 0 vì index=0)
         input_c = stage.getInputCol()
         labels = stage.labels
-        # Tạo dict: {'Imported': 0.0, 'Local': 1.0, ...}
+
+        # Ex: mapping = {'Toyota': 0, 'Honda': 1}
         mapping = {label: float(idx) for idx, label in enumerate(labels)}
         
         if input_c in ordinal_cols:
             encoding_maps["ordinal_encoding"][input_c] = mapping
         elif input_c in ohe_cols:
-            # Với OHE, ta cần biết index nào ứng với giá trị nào để tạo vector
             encoding_maps["onehot_encoding"][input_c] = mapping
 
 # ==============================================================================
-# 3. TRAIN RANDOM FOREST
+# 3. TRAIN RANDOM FOREST VỚI K-FOLD
 # ==============================================================================
+print("Chuẩn bị dữ liệu huấn luyện...")
 
-# Gom features
-# Lưu ý thứ tự này phải KHỚP TUYỆT ĐỐI với lúc tạo array ở Web App
 feature_list = (
-    ["Model Year", "Mileage", "Engine Capacity"] +    # Numeric gốc
-    [c + "_idx" for c in ordinal_cols] +              # Ordinal Encoded
-    [c + "_vec" for c in ohe_cols] +                  # OneHot Encoded (Vectors)
-    [c + "_encoded" for c in target_enc_cols]         # Target Encoded
+    ["Model Year", "Mileage", "Engine Capacity"] +    
+    [c + "_idx" for c in ordinal_cols] +              
+    [c + "_vec" for c in ohe_cols] +                  
+    [c + "_encoded" for c in target_enc_cols]         
 )
 
 assembler = VectorAssembler(inputCols=feature_list, outputCol="features")
 train_df = assembler.transform(df_final).select("features", "Price")
 
-# Split Data (Giống cell 22 file gốc dùng random_state=40)
+# Chia tập dữ liệu: 80% để Train (có K-Fold bên trong), 20% để Test độc lập
 train_data, test_data = train_df.randomSplit([0.8, 0.2], seed=40)
 
-# Train Model (Giống cell 22 file gốc dùng random_state=42)
+# Định nghĩa Model
 rf = RandomForestRegressor(featuresCol="features", labelCol="Price", 
                            numTrees=200, maxDepth=12, seed=42)
-rf_model = rf.fit(train_data)
 
-print("Đã huấn luyện xong!")
+# --- THIẾT LẬP K-FOLD ---
+# ParamGrid
+paramGrid = ParamGridBuilder().build()
+
+# Evaluator: Dùng RMSE để đánh giá
+evaluator = RegressionEvaluator(labelCol="Price", predictionCol="prediction", metricName="rmse")
+
+# rossValidator: 10 Folds
+cv = CrossValidator(estimator=rf,
+                    estimatorParamMaps=paramGrid,
+                    evaluator=evaluator,
+                    numFolds=10, 
+                    seed=42)
+
+print("Đang chạy K-Fold Cross Validation (10 Folds)... Quá trình này có thể mất vài phút.")
+cvModel = cv.fit(train_data)
+
+# Lấy ra model tốt nhất
+best_rf_model = cvModel.bestModel
+
+# In kết quả đánh giá
+print("-" * 30)
+print("KẾT QUẢ K-FOLD:")
+print(f"RMSE trung bình qua 10 folds: {min(cvModel.avgMetrics):.4f}")
+
+# Đánh giá trên tập Test độc lập (Holdout set)
+predictions = best_rf_model.transform(test_data)
+rmse_test = evaluator.evaluate(predictions)
+print(f"RMSE trên tập Test độc lập: {rmse_test:.4f}")
+print("-" * 30)
 
 # ==============================================================================
 # 4. XUẤT MODEL RA FILE (JSON + ONNX)
 # ==============================================================================
 
-# 4.1 Lưu file JSON chứa các quy tắc mapping (TargetEnc, Ordinal, OHE)
+# Lưu file JSON
 with open("car_price_mappings.json", "w", encoding='utf-8') as f:
     json.dump(encoding_maps, f, ensure_ascii=False, indent=4)
 print("- Đã lưu mapping: car_price_mappings.json")
 
-# 4.2 Lưu model Random Forest ra ONNX
-# Tính tổng số features đầu vào để khai báo cho ONNX
-# Numeric(3) + Ordinal(3) + TargetEnc(3) + OHE Vectors (phải tính len)
-num_features = rf_model.numFeatures
+# Lưu model Random Forest ra ONNX
+num_features = best_rf_model.numFeatures
 print(f"Tổng số features model cần: {num_features}")
 
 initial_types = [('features', FloatTensorType([None, num_features]))]
 
 # Convert
-onnx_model = onnxmltools.convert_sparkml(rf_model, initial_types=initial_types)
+print("Đang convert sang ONNX...")
+onnx_model = onnxmltools.convert_sparkml(best_rf_model, initial_types=initial_types)
 
 # Save
 with open("car_price_rf.onnx", "wb") as f:
     f.write(onnx_model.SerializeToString())
 print("- Đã lưu model: car_price_rf.onnx")
 
-# Dừng Spark
 spark.stop()
+print("Hoàn tất!")
